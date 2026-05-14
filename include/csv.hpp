@@ -21,7 +21,7 @@ private:
 
 public:
     CSVReader() {}
-
+    virtual ~CSVReader() {}
     // Read CSV file into vector
     bool readFile(const std::string& filename) {
         std::ifstream file(filename);
