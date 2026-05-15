@@ -2,7 +2,10 @@
 #include <iostream>
 #include <armadillo>
 #include <opencv2/opencv.hpp>
+
+#define MLPACK_ENABLE_ANN_SERIALIZATION 
 #include <mlpack.hpp>
+
 /*#include <mlpack/core.hpp>
 #include <mlpack/methods/logistic_regression/logistic_regression.hpp>
 #include <mlpack/methods/ann/layer/base_layer.hpp>
@@ -14,7 +17,8 @@
 
 
 
-#define MLPACK_ENABLE_ANN_SERIALIZATION
+
+        
 #include <mlpack.hpp>
 
 #if ((ENS_VERSION_MAJOR < 2) || \
@@ -32,6 +36,7 @@ typedef struct
     std::string img;
     int hairColor;
 }tRecord;
+
 
 void readChunk( std::vector<tRecord>& records,
                 arma::mat& iIMvec,arma::mat& labels,
@@ -67,6 +72,41 @@ void readChunk( std::vector<tRecord>& records,
     iIMvec.col(i)     =imageMatrix.reshape( 64*64,1);
   }
 }
+
+void readSingle( tRecord& record,
+                arma::mat& iIMvec,arma::mat& labels,
+                size_t id)
+{
+  
+  labels.resize(1, 1);
+  iIMvec.resize(64*64, 1);
+
+
+  
+    arma::mat imageMatrix;
+    mlpack::ImageOptions opts;
+    
+    try
+    {      
+      bool success = mlpack::data::Load(record.img, imageMatrix,opts, false );      
+      if(!success)
+      {
+          std::cerr << "Error: Could not load image " << record.img << std::endl;
+          exit(1);
+      }
+     
+      imageMatrix = imageMatrix.reshape(64, 64);
+      labels(0,0) = record.hairColor;
+    }
+    catch(const std::exception& e)
+    {
+      std::cerr << "Failed  on "<<id << '\n';
+      std::cerr << e.what() << '\n';
+    } 
+    iIMvec.col(0)     =imageMatrix.reshape( 64*64,1);
+  
+}
+
 /*
 mlpack::ann::FFN<mlpack::ann::NegativeLogLikelihood<>>& createNetwork()
 {
@@ -82,7 +122,7 @@ mlpack::ann::FFN<mlpack::ann::NegativeLogLikelihood<>>& createNetwork()
 int main()
 {
   //const size_t points = 500;
-  const size_t chunkSize = 1000;
+  const size_t chunkSize = 5000;
   
     CSVReader csv;
     std::vector<tRecord> records;
@@ -106,14 +146,14 @@ int main()
             sprintf(filename, "/home/leonidp/ds/img_align_celeba/img_align_celeba/%06d.jpg", csv.getCellAsInt ( i,0) );
                 tRecord rec;
                 rec.img = filename;
-                if(csv.getCellAsInt ( i, 9))
-                    rec.hairColor = 1;
-                else if(csv.getCellAsInt ( i, 10))
-                    rec.hairColor = 2;
-                else if(csv.getCellAsInt ( i, 12))
-                    rec.hairColor = 3;
-                else if(csv.getCellAsInt ( i, 18))
-                    rec.hairColor = 4;
+                if(csv.getCellAsInt ( i, 9)==1)
+                    rec.hairColor = .1;
+                else if(csv.getCellAsInt ( i, 10)==1)
+                    rec.hairColor = .4;
+                else if(csv.getCellAsInt ( i, 12)==1)
+                    rec.hairColor = .6;
+                else if(csv.getCellAsInt ( i, 18)==1)
+                    rec.hairColor = .8;
                 else
                 rec.hairColor = 0;
 
@@ -123,22 +163,49 @@ int main()
     std::cout << "Record = " << records.size() << std::endl;
     int  ImageSize = 768;
 
+    ens::Adam optimizer(chunkSize, chunkSize);
+// MaxIterations = epochs * (num_samples / batch_size)
+    optimizer.MaxIterations() = 200 * (records.size() / chunkSize);
     FFN<NegativeLogLikelihood> network;
-    network.Add<Linear >(ImageSize);
-    network.Add<Sigmoid>();
-    network.Add<Linear>(10);
-    network.Add<LogSoftMax>(); 
 
-    arma::mat iIMvec;
-    arma::mat  labels;
-    
-    for(size_t i=0;i<records.size();i=i+chunkSize)
+    if(!data::Load("hair_classificator_model.bin",network))
     {
-          std::cout << "Processing chunk starting at index " << i << std::endl;
-          readChunk(records, iIMvec,labels,i,std::min(chunkSize, records.size() - i));
-          network.Train(iIMvec, labels);
+      std::cout << "No saved network  - going to learn it! " << std::endl;
+      network.Add<Linear >(ImageSize);
+      network.Add<Sigmoid>();
+      network.Add<Linear>(10);
+      network.Add<LogSoftMax>(); 
+      
+
+      arma::mat iIMvec;
+      arma::mat  labels;
+      
+      for(size_t i=0;i<records.size();i=i+chunkSize)
+      {
+            std::cout << "Processing chunk starting at index " << i << std::endl;
+            readChunk(records, iIMvec,labels,i,std::min(chunkSize, records.size() - i));
+            network.Train(iIMvec, labels,optimizer, ens::ProgressBar(),ens::PrintLoss() );
+            data::Save("hair_classificator_model.bin","HairColor", network);
+      }
+    }
+    else
+    {
+      std::cout << "Ok ! We have it , lets check."<< std::endl; 
+      arma::mat iIMvec;
+      arma::mat  labels;
+      for(int i=0;i<100;i++)
+      {
+          size_t id = rand() % records.size();
+          readSingle( records[id], iIMvec,labels,id);
+
+          arma::mat predictions;
+          predictions.resize(1,1);
+          network.Predict(iIMvec, predictions);
+          std::cout << "Predictions: " << predictions.col(0).row(0) << std::endl;
+          std::cout << "Actual: " << labels.col(0).t() << std::endl;
+      }      
     }
     std::cout << "Done !"  << std::endl;
-    data::Save("hair_classificator_model.bin","HairColor", network);
+
     return 0;
 }
