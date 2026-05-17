@@ -34,7 +34,7 @@ using namespace arma;
 typedef struct
 {
     std::string img;
-    int hairColor;
+    double hairColor;
 }tRecord;
 
 
@@ -122,7 +122,8 @@ mlpack::ann::FFN<mlpack::ann::NegativeLogLikelihood<>>& createNetwork()
 int main()
 {
   //const size_t points = 500;
-  const size_t chunkSize = 5000;
+  const size_t chunkSize = 20000;
+   int stat[5]={0};
   
     CSVReader csv;
     std::vector<tRecord> records;
@@ -140,6 +141,7 @@ int main()
         }
         exit(0);  */
         // Access specific cell
+       
         for(int i=1; i<csv.getRowCount(); ++i)
         {
             char filename[100];
@@ -147,18 +149,38 @@ int main()
                 tRecord rec;
                 rec.img = filename;
                 if(csv.getCellAsInt ( i, 9)==1)
+                {
                     rec.hairColor = .1;
+                    stat[1]++;
+                }
                 else if(csv.getCellAsInt ( i, 10)==1)
+                {
                     rec.hairColor = .4;
+                    stat[2]++;
+                }
                 else if(csv.getCellAsInt ( i, 12)==1)
-                    rec.hairColor = .6;
+                  { 
+                     rec.hairColor = .6;
+                     stat[3]++; 
+                  }
                 else if(csv.getCellAsInt ( i, 18)==1)
-                    rec.hairColor = .8;
+                    {
+                      rec.hairColor = .8;
+                      stat[4]++;
+                    }
                 else
-                rec.hairColor = 0;
+                {
+                  continue;
+                  //rec.hairColor = 0;
+                  //stat[0]++;
+                }
 
                 records.push_back(rec);
         }
+     }
+     for(int i=0;i<5;i++)
+     {
+       std::cout << "Stat " << i << ": " << stat[i] << std::endl;
      }
     std::cout << "Record = " << records.size() << std::endl;
     int  ImageSize = 768;
@@ -173,8 +195,17 @@ int main()
       std::cout << "No saved network  - going to learn it! " << std::endl;
       network.Add<Linear >(ImageSize);
       network.Add<Sigmoid>();
+      network.Add<Linear>(ImageSize/4);
+      network.Add<Sigmoid>(); 
       network.Add<Linear>(10);
+      network.Add<Linear>(ImageSize/8);
+      network.Add<Sigmoid>(); 
+      network.Add<Linear>(ImageSize/16);
+      network.Add<Sigmoid>();             
+      network.Add<Sigmoid>(); 
+      network.Add<Linear>(1);
       network.Add<LogSoftMax>(); 
+      
       
 
       arma::mat iIMvec;
@@ -184,12 +215,14 @@ int main()
       {
             std::cout << "Processing chunk starting at index " << i << std::endl;
             readChunk(records, iIMvec,labels,i,std::min(chunkSize, records.size() - i));
-            network.Train(iIMvec, labels,optimizer, ens::ProgressBar(),ens::PrintLoss() );
+            double lost = network.Train(iIMvec, labels,optimizer, ens::ProgressBar(),ens::PrintLoss() );
+            std::cout<< std::endl<< std::endl<< "Chunk processed with loss: " << lost << std::endl;
             data::Save("hair_classificator_model.bin","HairColor", network);
       }
     }
     else
     {
+
       std::cout << "Ok ! We have it , lets check."<< std::endl; 
       arma::mat iIMvec;
       arma::mat  labels;
